@@ -4,7 +4,7 @@ import random
 import time
 
 def spawn_vehicles(client, num_vehicles=10):
-    world = lient.get_world()
+    world = client.get_world()
     blueprint_library = world.get_blueprint_library()
     vehicle_blueprints = blueprint_library.filter('vehicle.*')
 
