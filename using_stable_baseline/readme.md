@@ -29,5 +29,5 @@ Under the created conda environment, the python client files (train.py, test.py)
 ```
 ## others
 
-'dqn_carla.zip' is the trained model
+'dqn_carla.zip' is the trained model (currently runnable but no functioning since the action is not properly defined yet (only steer left and steer right))
 
