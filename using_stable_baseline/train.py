@@ -1,4 +1,3 @@
-# %%
 import sys
 import os
 import math
@@ -42,6 +41,19 @@ class CarlaEnv(gym.Env):
         self.vehicle = None
         self.camera = None
 
+        self.latest_image = np.zeros((84, 84, 3), dtype=np.uint8)  # Default black image
+
+        self.collision_sensor = None
+        self.collision_detected = False  # To track collision state
+
+        # Get map information
+        self.map = self.world.get_map()
+
+        # Timer for safe driving
+        self.safe_drive_time = 0  # Tracks timesteps spent driving without collision
+        self.safe_drive_threshold = 5  # Threshold for rewarding safe driving
+
+
     def reset(self):
         """Resets the environment and returns initial observation."""
         self.destroy_actors()
@@ -49,26 +61,48 @@ class CarlaEnv(gym.Env):
         blueprint_library = self.world.get_blueprint_library()
         vehicle_bp = blueprint_library.filter("model3")[0]  
         spawn_points = self.world.get_map().get_spawn_points()
-        self.vehicle = self.world.spawn_actor(vehicle_bp, random.choice(spawn_points))
+        # self.vehicle = self.world.spawn_actor(vehicle_bp, random.choice(spawn_points))
+        self.vehicle = self.world.spawn_actor(vehicle_bp, spawn_points[7])
 
-        # spectator = self.world.get_spectator()
-        # transform = carla.Transform(self.vehicle.get_transform().transform(carla.Location(x=-4, z=2.5)), self.vehicle.get_transform().rotation)
-        # print(transform)
-        # spectator.set_transform(transform)
+        spectator = self.world.get_spectator()
+        transform = carla.Transform(self.vehicle.get_transform().transform(carla.Location(x=-4, z=2.5)), self.vehicle.get_transform().rotation)
+        print(transform)
+        spectator.set_transform(transform)
+
         
+        # Collision sensor setup
+        collision_bp = self.world.get_blueprint_library().find("sensor.other.collision")
+        self.collision_sensor = self.world.spawn_actor(collision_bp, carla.Transform(), attach_to=self.vehicle)
+        self.collision_sensor.listen(self._on_collision)
+
+
+        # Camera setup
         camera_bp = blueprint_library.find("sensor.camera.rgb")
         camera_bp.set_attribute("image_size_x", "84")
         camera_bp.set_attribute("image_size_y", "84")
+        camera_bp.set_attribute("fov", "110")
         camera_transform = carla.Transform(carla.Location(x=1.5, z=2.4))
         self.camera = self.world.spawn_actor(camera_bp, camera_transform, attach_to=self.vehicle)
         self.camera.listen(lambda image: self._process_image(image))
-        
-        return np.zeros((84, 84, 3), dtype=np.uint8)  # Dummy observation for now
+
+        # Wait until at least one image has been received
+        while self.latest_image is None or self.latest_image.sum() == 0:
+            time.sleep(0.01)
+
+        return self.latest_image
+    
+        # return np.zeros((84, 84, 3), dtype=np.uint8)  # Dummy observation for now
+
+
+    def _on_collision(self, event):
+        """Callback function for collision sensor."""
+        self.collision_detected = True
 
     def _process_image(self, image):
         """Converts CARLA image to numpy array."""
         img = np.array(image.raw_data).reshape((image.height, image.width, 4))[:, :, :3]
-        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
+        img = cv2.resize(img, (84, 84))  # Ensure size match
+        self.latest_image = img
 
     def step(self, action):
         """Applies action and returns (observation, reward, done, info)."""
@@ -80,11 +114,50 @@ class CarlaEnv(gym.Env):
         
         self.vehicle.apply_control(carla.VehicleControl(throttle=throttle, steer=steer))
         
-        observation = np.zeros((84, 84, 3), dtype=np.uint8)  # Dummy observation
-        reward = 1.0  # Positive reward for moving forward
-        done = False  # Define termination conditions
+        # Reset collision detection flag for this step
+        self.collision_detected = False
+        
+        # observation = np.zeros((84, 84, 3), dtype=np.uint8)  # Dummy observation
 
+        # Wait briefly to ensure the image has updated
+        time.sleep(0.05)
+        observation = self.latest_image
+
+        reward = 0.0  # Default reward
+        done = False
+
+        # Collision detection: if a collision occurs, terminate the episode
+        if self.collision_detected:
+            reward = -10.0  # Large penalty for collision
+            done = True
+            print("Collision detected! Episode terminated.")
+
+        # Example of off-road detection
+        is_off_road = self._is_off_road(self.vehicle.get_location())
+        if is_off_road:
+            reward = -5.0  # Penalty for going off-road
+            done = True
+            print("Vehicle is off-road! Episode terminated.")
+
+        # Positive reward for driving without collision for a period of time
+        if not self.collision_detected and not is_off_road and not done:
+            self.safe_drive_time += 1  # Increment safe drive time
+            if self.safe_drive_time >= self.safe_drive_threshold:
+                reward += 3.0  # Positive reward for safe driving
+                self.safe_drive_time = 0  # Reset after giving reward
+            elif done == False:
+                reward = 0.0
+
+
+        print(f"Step Action: {action}, Reward: {reward}, Collision: {self.collision_detected}, safedrivetime: {self.safe_drive_time}, safedrivethreshold: {self.safe_drive_threshold}")
         return observation, reward, done, {}
+    
+    def _is_off_road(self, location):
+        try:
+            waypoint = self.map.get_waypoint(location, project_to_road=True, lane_type=carla.LaneType.Driving)
+            return False  # It's on-road
+        except:
+            return True  # No valid waypoint, off-road
 
     def destroy_actors(self):
         """Destroys existing actors in the environment."""
@@ -92,6 +165,8 @@ class CarlaEnv(gym.Env):
             self.vehicle.destroy()
         if self.camera is not None:
             self.camera.destroy()
+        if self.collision_sensor is not None:
+            self.collision_sensor.destroy()
 
     def close(self):
         self.destroy_actors()
@@ -112,7 +187,7 @@ model = DQN("CnnPolicy", env, verbose=2, buffer_size=50000, learning_rate=1e-4, 
 
 # Train the model
 print("Starting DQN training...")
-model.learn(total_timesteps=100000, log_interval=10, progress_bar=True)
+model.learn(total_timesteps=10000, log_interval=10, progress_bar=True)
 print("Training completed!")
 
 # Save the model
