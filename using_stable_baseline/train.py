@@ -72,7 +72,7 @@ class CarlaEnv(gym.Env):
 
     def step(self, action):
         """Applies action and returns (observation, reward, done, info)."""
-        throttle, steer = 0.4, 0.0  # Default acceleration
+        throttle, steer = 0.5, 0.0  # Default acceleration
         if action == 0:
             steer = -0.3  # Left
         elif action == 2:
