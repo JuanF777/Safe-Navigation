@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from rl_agent.replay_buffer import ReplayBuffer
+from Replay_Buffer import ReplayBuffer
 
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action):

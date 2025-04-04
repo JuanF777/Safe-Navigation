@@ -4,7 +4,7 @@ import torch.optim as optim
 import random
 import numpy as np
 from collections import deque
-from rl_agent.replay_buffer import ReplayBuffer
+from Replay_Buffer import ReplayBuffer
 
 class DQN(nn.Module):
     def __init__(self, state_dim, action_dim):
