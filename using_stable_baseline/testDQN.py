@@ -11,7 +11,7 @@ import cv2
 script_dir = os.getcwd()
 
 # Add the .egg file to Python's path
-sys.path.append(os.path.join(script_dir, "carla-0.9.10-py3.7-linux-x86_64.egg"))
+sys.path.append(os.path.join(script_dir, "carla-0.9.10-py3.7-win-amd64.egg"))
 
 import carla
 import gym
