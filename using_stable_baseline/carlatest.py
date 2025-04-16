@@ -16,7 +16,6 @@ class CarlaEnv(gym.Env):
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32)
 
-
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(5.0)
         self.world = self.client.load_world("Town02")
@@ -55,46 +54,18 @@ class CarlaEnv(gym.Env):
         spectator.set_transform(carla.Transform(location, rotation))
 
         coords = [
-    (-7.42, 142.24),  # Forward straight path
-    (-7.42, 145.24),
-    (-7.42, 148.24),
-    (-7.42, 151.24),
-    (-7.42, 154.24),
-    (-7.42, 157.24),
-    (-7.42, 160.24),
-    (-7.42, 163.24),
-    (-7.42, 166.24),
-    (-7.42, 169.24),
-    (-7.42, 172.24),
-    (-7.46, 175.24),
-    (-7.46, 178.24),
-    (-7.46, 181.24),
-    (-7.45, 184.24),
-    (-7.45, 187.24),
-    (-3.86, 189.54),
-    (0.51, 191.65),
-    (3.40, 191.55),
-    (6.40, 191.56),
-    (9.40, 191.56),
-    (12.4, 191.56),
-    (15.4, 191.56),
-    (18.4, 191.56),
-    (21.4, 191.56),
-    (24.4, 191.56),
-    (27.4, 191.56),
-    (30.4, 191.57),
-    (33.4, 191.57),
-    (37.70, 191.57),
-    (40.70, 191.57),
-    (43.70, 191.57),
-    (46.70, 191.57),
-    (49.55, 191.65),
-    (52.16, 191.58),
-    (55.7, 191.58), 
-    (58.7, 191.58),
-    (61.7, 191.58),
-    (64.7, 191.58),
-    (67.7, 191.58)
+            (-7.42, 142.24), (-7.42, 145.24), (-7.42, 148.24), (-7.42, 151.24),
+            (-7.42, 154.24), (-7.42, 157.24), (-7.42, 160.24), (-7.42, 163.24),
+            (-7.42, 166.24), (-7.42, 169.24), (-7.42, 172.24), (-7.46, 175.24),
+            (-7.46, 178.24), (-7.46, 181.24), (-7.45, 184.24), (-7.45, 186.24),
+            (-6.5, 187.50), (-5.3, 188.5), (-4.1, 189.3), (-3.0, 190.1),
+            (-1.6, 190.9), (0.2, 191.5), (2.0, 191.55), (4.0, 191.56),
+            (6.0, 191.56), (9.0, 191.56), (12.0, 191.56), (15.0, 191.56),
+            (18.0, 191.56), (21.0, 191.56), (24.0, 191.56), (27.0, 191.56),
+            (30.0, 191.57), (33.0, 191.57), (37.0, 191.57), (40.0, 191.57),
+            (43.0, 191.57), (46.0, 191.57), (49.0, 191.57), (52.0, 191.58),
+            (55.0, 191.58), (58.0, 191.58), (61.0, 191.58), (64.0, 191.58),
+            (67.0, 191.58)
         ]
 
         self.waypoint_list = []
@@ -114,11 +85,28 @@ class CarlaEnv(gym.Env):
     def step(self, action):
         control = carla.VehicleControl()
         current_distance = self._distance_to_waypoint()
+        reward = 1.0
+        done = False
 
-        is_near_goal = (len(self.waypoint_list) - self.current_wp_index) <= 3
-        control.throttle = 0.5 if not (is_near_goal and current_distance < 3.0) else 0.0
-        control.brake = 0.3 if is_near_goal and current_distance < 3.0 else 0.0
-        control.steer = [-0.3, 0.0, 0.3][action]
+        # Recompute rel_x and rel_y in vehicle frame
+        vehicle_transform = self.vehicle.get_transform()
+        vehicle_location = vehicle_transform.location
+        vehicle_rotation = vehicle_transform.rotation
+        wp = self.waypoint_list[self.current_wp_index].transform.location
+
+        dx = wp.x - vehicle_location.x
+        dy = wp.y - vehicle_location.y
+        yaw = math.radians(vehicle_rotation.yaw)
+        rel_x = dx * math.cos(-yaw) - dy * math.sin(-yaw)
+        rel_y = dx * math.sin(-yaw) + dy * math.cos(-yaw)
+        angle_to_wp = math.atan2(rel_y, rel_x)
+
+        angle_penalty = abs(angle_to_wp)
+        reward += 1.0 - angle_penalty  # Max reward = 1.0 when aligned
+
+        control.throttle = 0.5 if not (len(self.waypoint_list) - self.current_wp_index <= 3 and current_distance < 3.0) else 0.0
+        control.brake = 0.3 if (len(self.waypoint_list) - self.current_wp_index) <= 3 and current_distance < 3.0 else 0.0
+        control.steer = [-0.6, 0.0, 0.6][action]
 
         self.vehicle.apply_control(control)
         self.world.tick()
@@ -126,12 +114,8 @@ class CarlaEnv(gym.Env):
         current_location = self.vehicle.get_location()
         dx = current_location.x - self.last_location.x
         dy = current_location.y - self.last_location.y
-        step_distance = math.sqrt(dx**2 + dy**2)
-        self.total_distance += step_distance
+        self.total_distance += math.sqrt(dx**2 + dy**2)
         self.last_location = current_location
-
-        reward = 1.0
-        done = False
 
         if len(self.collision_hist) > 0:
             reward = -100.0
@@ -143,6 +127,7 @@ class CarlaEnv(gym.Env):
 
             if current_distance < 2.0:
                 self.current_wp_index += 1
+                reward += 5.0
                 if self.current_wp_index >= len(self.waypoint_list):
                     print("Reached final waypoint!")
                     reward += 100.0
@@ -156,30 +141,31 @@ class CarlaEnv(gym.Env):
         return self._get_obs(), reward, done, {}
 
     def _get_obs(self):
+        vehicle_transform = self.vehicle.get_transform()
+        vehicle_location = vehicle_transform.location
+        vehicle_rotation = vehicle_transform.rotation
+        wp = self.waypoint_list[self.current_wp_index].transform.location
+
+        # Relative position
+        dx = wp.x - vehicle_location.x
+        dy = wp.y - vehicle_location.y
+
+        # Rotate into vehicle's frame (so front is always +x)
+        yaw = math.radians(vehicle_rotation.yaw)
+        rel_x = dx * math.cos(-yaw) - dy * math.sin(-yaw)
+        rel_y = dx * math.sin(-yaw) + dy * math.cos(-yaw)
+
         vel = self.vehicle.get_velocity()
-        loc = self.vehicle.get_location()
-        next_wp = self.waypoint_list[self.current_wp_index].transform
 
-        # Heading difference (radians)
-        vehicle_yaw = math.radians(self.vehicle.get_transform().rotation.yaw)
-        wp_yaw = math.radians(next_wp.rotation.yaw)
-        heading_diff = math.sin(wp_yaw - vehicle_yaw)
-
-        # Relative vector to waypoint
-        dx = next_wp.location.x - loc.x
-        dy = next_wp.location.y - loc.y
-
-        return np.array([vel.x, vel.y, dx, dy, heading_diff], dtype=np.float32)
-
+        angle_to_wp = math.atan2(rel_y, rel_x)
+        return np.array([rel_x, rel_y, vel.x, vel.y, angle_to_wp], dtype=np.float32)
 
     def _distance_to_waypoint(self):
         if self.current_wp_index >= len(self.waypoint_list):
             return 0.0
         vehicle_loc = self.vehicle.get_location()
         wp_loc = self.waypoint_list[self.current_wp_index].transform.location
-        dx = vehicle_loc.x - wp_loc.x
-        dy = vehicle_loc.y - wp_loc.y
-        return math.sqrt(dx ** 2 + dy ** 2)
+        return math.sqrt((vehicle_loc.x - wp_loc.x)**2 + (vehicle_loc.y - wp_loc.y)**2)
 
     def get_total_distance(self):
         return self.total_distance

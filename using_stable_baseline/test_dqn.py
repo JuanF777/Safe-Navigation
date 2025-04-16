@@ -19,6 +19,8 @@ print(f"Starting evaluation for {max_steps} total steps")
 for i in range(max_steps):
     action, _ = model.predict(obs)
     obs, reward, done, info = env.step(action)
+    print(f"Step {i} | Action: {action} | Rel_X: {obs[0]:.2f} | Rel_Y: {obs[1]:.2f} | Angle: {obs[4]:.2f}")
+
     episode_steps += 1
 
     if done:
@@ -48,3 +50,6 @@ print(f"Total episodes: {episode_num - 1}")
 print(f"Successes:   {successes}")
 print(f"Collisions: {collisions}")
 print(f"Timeouts:    {timeouts}")
+
+print(f"  Final location: {env.vehicle.get_location()}")
+print(f"  Final yaw: {env.vehicle.get_transform().rotation.yaw:.2f}")
