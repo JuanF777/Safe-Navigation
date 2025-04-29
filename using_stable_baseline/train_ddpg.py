@@ -1,15 +1,10 @@
+# train_ddpg.py
+
 from stable_baselines3 import DDPG
 from stable_baselines3.ddpg.policies import MlpPolicy
 from carlatest_ddpg import CarlaEnv
 
-from stable_baselines3.common.noise import NormalActionNoise
-import numpy as np
-
 env = CarlaEnv()
-
-# Add action noise for better exploration
-n_actions = env.action_space.shape[-1]
-noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
 
 model = DDPG(
     MlpPolicy,
@@ -23,11 +18,37 @@ model = DDPG(
     gamma=0.99,
     train_freq=(1, "step"),
     gradient_steps=1,
-    action_noise=noise,
     tensorboard_log="./ddpg_logs/",
     policy_kwargs=dict(net_arch=[256, 256])
 )
 
-model.learn(total_timesteps=200000, tb_log_name="ddpg_carla")
-model.save("ddpg")
+successes, collisions, timeouts = 0, 0, 0
+episodes = 0
+max_steps = 200000
 
+obs = env.reset()
+
+for step in range(max_steps):
+    action, _ = model.predict(obs, deterministic=False) 
+    obs, reward, done, info = env.step(action)
+
+    if done:
+        if info.get("event") == "collision":
+            collisions += 1
+        elif info.get("event") == "timeout":
+            timeouts += 1
+        elif reward > 0:
+            successes += 1
+        else:
+            collisions += 1 
+        episodes += 1
+        obs = env.reset()
+
+model.save("ddpg_forward")
+print("\nTraining complete.")
+print(f"Total training episodes: {episodes}")
+print(f"Successes: {successes}")
+print(f"Collisions: {collisions}")
+print(f"Timeouts: {timeouts}")
+
+env.close()

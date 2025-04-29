@@ -1,50 +1,37 @@
+# test_ddpg.py
+
 from stable_baselines3 import DDPG
 from carlatest_ddpg import CarlaEnv
 
 env = CarlaEnv()
-model = DDPG.load("ddpg", env=env)
+model = DDPG.load("ddpg_forward", env=env)
 
 obs = env.reset()
 
-max_steps = 2000
-episode_steps = 0
-episode_num = 1
+successes, collisions, timeouts = 0, 0, 0
+episodes = 0
+max_steps = 40000
 
-successes = 0
-collisions = 0
-timeouts = 0
-
-print(f"Starting DDPG evaluation for {max_steps} total steps")
-
-for i in range(max_steps):
-    action, _ = model.predict(obs, deterministic=True)
+for step in range(max_steps):
+    action, _ = model.predict(obs, deterministic=True)  # fully deterministic now
     obs, reward, done, info = env.step(action)
 
-    print(f"[Step {i}] Rel_X: {obs[0]:.2f}, Rel_Y: {obs[1]:.2f}, Angle: {obs[4]:.2f}, Steer: {action[0]:.2f}")
-
-    episode_steps += 1
-
     if done:
-        print(f"\n Episode {episode_num} ended after {episode_steps} steps")
-
-        if reward >= 100:
-            print("Success: Reached goal!")
-            successes += 1
-        elif reward <= -100:
-            print("Crash detected!")
+        if info.get("event") == "collision":
             collisions += 1
-        else:
-            print("Timeout")
+        elif info.get("event") == "timeout":
             timeouts += 1
-
-        print(f" Distance traveled: {env.get_total_distance():.2f} m")
-
-        episode_num += 1
-        episode_steps = 0
+        elif reward > 0:
+            successes += 1
+        else:
+            collisions += 1
+        episodes += 1
         obs = env.reset()
 
-print("\nEvaluation complete.")
-print(f"Total episodes: {episode_num - 1}")
+print("\nTesting complete.")
+print(f"Total testing episodes: {episodes}")
 print(f"Successes: {successes}")
 print(f"Collisions: {collisions}")
 print(f"Timeouts: {timeouts}")
+
+env.close()
